@@ -1,6 +1,6 @@
 # PDO APM
 
-[![PHP Version](https://img.shields.io/badge/php-%3E%3D8.4-blue.svg)](https://php.net/)
+[![PHP Version](https://img.shields.io/badge/php-%3E%3D8.2-blue.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 A simple, lightweight Application Performance Monitoring (APM) library for PDO that provides detailed insights into your database operations through an event-driven architecture.
@@ -25,7 +25,7 @@ composer require peoplepath/pdo-apm
 
 ## Requirements
 
-- PHP >= 8.4
+- PHP >= 8.2
 - PDO extension
 
 ## Quick Start
