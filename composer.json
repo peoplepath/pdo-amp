@@ -1,0 +1,41 @@
+{
+    "name": "peoplepath/pdo-apm",
+    "description": "Simple APM for PDO adapter",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Ondřej Ešler",
+            "email": "ondrej.esler@peoplepath.com"
+        }
+    ],
+    "require": {
+        "php": ">=8.4",
+        "ext-pdo": "*"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.13",
+        "phpstan/phpstan": "^2",
+        "phpstan/phpstan-phpunit": "^2",
+        "phpunit/phpunit": "^13"
+    },
+    "autoload": {
+        "psr-4": {
+            "PeoplePath\\PdoApm\\": "src/"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true,
+            "pestphp/pest-plugin": true
+        },
+        "sort-packages": true
+    },
+    "scripts": {
+        "check": [
+            "pint --test",
+            "phpstan",
+            "phpunit"
+        ]
+    }
+}
