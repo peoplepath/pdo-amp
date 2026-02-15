@@ -14,7 +14,6 @@ use function sprintf;
  */
 final class PDOTest extends TestCase
 {
-    /** @covers PDO::exec */
     public function test_exec_creates_events(): void
     {
         $pdo = $this->createPDO();
@@ -47,7 +46,6 @@ final class PDOTest extends TestCase
         $this->assertFalse($pdo->exec('SELECT * FROM `not_a_table`'));
     }
 
-    /** @covers PDO::prepare */
     public function test_prepare_returns_pdo_statement(): void
     {
         $pdo = $this->createPDO();

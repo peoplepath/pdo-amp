@@ -17,7 +17,7 @@
         "laravel/pint": "^1.13",
         "phpstan/phpstan": "^2",
         "phpstan/phpstan-phpunit": "^2",
-        "phpunit/phpunit": "^13"
+        "phpunit/phpunit": "^11"
     },
     "autoload": {
         "psr-4": {
