@@ -7,13 +7,12 @@ A simple, lightweight Application Performance Monitoring (APM) library for PDO t
 
 ## Features
 
-- 🔍 **Query Profiling** - Track execution time, row counts, and parameters for all database operations
-- 📊 **Event-Driven Architecture** - Subscribe to specific database events using a clean observer pattern
-- 🎯 **Zero Configuration** - Drop-in replacement for standard PDO with no configuration required
-- 🚀 **Lightweight** - Minimal overhead with no external dependencies
-- 🔄 **Transaction Tracking** - Monitor transaction lifecycle (begin, commit, rollback)
-- ⚠️ **Error Tracking** - Capture failed queries with full context including parameters
-- 🧪 **Fully Tested** - Comprehensive test suite with 100% coverage of core functionality
+- **Lightweight** - Minimal overhead with no external dependencies
+- **Zero Configuration** - Drop-in replacement for standard PDO with no configuration required
+- **Query Profiling** - Track execution time, row counts, and parameters for all database operations
+- **Event-Driven Architecture** - Subscribe to specific database events using a clean observer pattern
+- **Transaction Tracking** - Monitor transaction lifecycle (begin, commit, rollback)
+- **Error Tracking** - Capture failed queries with full context including parameters
 
 ## Installation
 
