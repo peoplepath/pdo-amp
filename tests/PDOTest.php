@@ -214,6 +214,90 @@ final class PDOTest extends TestCase
         $pdo->prepare($query);
     }
 
+    public function test_multiple_prepared_statements_executed_in_reverse_order(): void
+    {
+        $pdo = $this->createPDO();
+
+        // Track the order of events
+        $eventLog = [];
+
+        $subscriber = $this->createMockForIntersectionOfInterfaces([
+            Subscriber\PrepareSubscriber::class,
+            Subscriber\ExecutionStartsSubscriber::class,
+            Subscriber\ExecutionSucceededSubscriber::class,
+        ]);
+        $subscriber->expects($this->exactly(2))
+            ->method('prepare')
+            ->willReturnCallback(function (Event\PrepareEvent $event) use (&$eventLog) {
+                $eventLog[] = ['action' => 'prepare', 'query' => $event->query];
+            });
+
+        $subscriber->expects($this->exactly(2))
+            ->method('executionStarts')
+            ->willReturnCallback(function (Event\ExecutionStartsEvent $event) use (&$eventLog) {
+                $eventLog[] = ['action' => 'executionStarts', 'query' => $event->query];
+            });
+
+        $subscriber->expects($this->exactly(2))
+            ->method('executionSucceeded')
+            ->willReturnCallback(function (Event\ExecutionSucceededEvent $event) use (&$eventLog) {
+                $eventLog[] = ['action' => 'executionSucceeded', 'params' => $event->params];
+            });
+
+        $pdo->addSubscriber($subscriber);
+
+        // Prepare two statements
+        $query1 = 'SELECT ? AS first_value';
+        $query2 = 'SELECT ? AS second_value';
+        $stmt1 = $pdo->prepare($query1);
+        $stmt2 = $pdo->prepare($query2);
+
+
+        // Execute in reverse order
+        $this->assertTrue($stmt2->execute([200]));
+        $this->assertTrue($stmt1->execute([100]));
+
+        $this->assertSame([
+            [
+                'action' => 'prepare',
+                'query' => 'SELECT ? AS first_value',
+            ],
+            [
+                'action' => 'prepare',
+                'query' => 'SELECT ? AS second_value',
+            ],
+            [
+                'action' => 'executionStarts',
+                'query' => 'SELECT ? AS second_value',
+            ],
+            [
+                'action' => 'executionSucceeded',
+                'params' => [200],
+            ],
+            [
+                'action' => 'executionStarts',
+                'query' => 'SELECT ? AS first_value',
+            ],
+            [
+                'action' => 'executionSucceeded',
+                'params' => [100],
+            ],
+        ], $eventLog);
+    }
+
+    public function test_minimal_delay_after_prepare(): void {
+        $pdo   = $this->createPDO();
+        $micro = microtime(true);
+
+        $stmt = $pdo->prepare('SELECT USLEEP(10001)');
+
+        $this->assertLessThan(.01, microtime(true) - $micro);
+
+        $stmt->execute();
+
+        $this->assertGreaterThan(.01, microtime(true) - $micro);
+    }
+
     /**
      * @phpstan-param PDO::ERRMODE_* $errmode
      * @phpstan-param PDO::FETCH_*   $fetchmode
