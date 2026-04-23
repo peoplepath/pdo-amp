@@ -74,8 +74,8 @@ PDO APM emits the following events during database operations:
 | Event | Triggered When | Properties |
 |-------|---------------|------------|
 | `ExecutionStartsEvent` | Query execution begins | `query` |
-| `ExecutionSucceededEvent` | Query completes successfully | `rowCount`, `params` |
-| `ExecutionFailedEvent` | Query fails | `exception`, `params` |
+| `ExecutionSucceededEvent` | Query completes successfully | `rowCount`, `params` (includes both bound and execute params) |
+| `ExecutionFailedEvent` | Query fails | `exception`, `params` (includes both bound and execute params) |
 | `PrepareEvent` | Statement is prepared | `query` |
 
 ### Transaction Events
@@ -109,12 +109,12 @@ class MySubscriber implements
 
     public function executionSucceeded(Event\ExecutionSucceededEvent $event): void {
         // Called when query succeeds
-        // Access: $event->rowCount, $event->params
+        // Access: $event->rowCount, $event->params (includes both bound and execute params)
     }
 
     public function executionFailed(Event\ExecutionFailedEvent $event): void {
         // Called when query fails
-        // Access: $event->exception, $event->params
+        // Access: $event->exception, $event->params (includes both bound and execute params)
     }
 
     public function prepare(Event\PrepareEvent $event): void {
@@ -288,6 +288,59 @@ $pdo->beginTransaction();
 $pdo->commit();
 ```
 
+### Parameter Tracking
+
+All parameters—whether bound via `bindValue()`, `bindParam()`, or passed directly to `execute()`—are included in the execution events (`ExecutionSucceededEvent` and `ExecutionFailedEvent`). This provides a complete view of the query with its actual parameter values at execution time.
+
+```php
+use PeoplePath\PdoApm\PDO;
+use PeoplePath\PdoApm\Event;
+use PeoplePath\PdoApm\Subscriber;
+
+class ParameterLogger implements
+    Subscriber\ExecutionStartsSubscriber,
+    Subscriber\ExecutionSucceededSubscriber
+{
+    private string $currentQuery;
+
+    public function executionStarts(Event\ExecutionStartsEvent $event): void {
+        $this->currentQuery = $event->query;
+    }
+
+    public function executionSucceeded(Event\ExecutionSucceededEvent $event): void {
+        echo "Query: {$this->currentQuery}\n";
+        echo "Parameters: " . json_encode($event->params) . "\n";
+        echo "Rows affected: {$event->rowCount}\n\n";
+    }
+}
+
+$pdo = new PDO('sqlite::memory:');
+$pdo->addSubscriber(new ParameterLogger());
+
+// Example 1: Using bindValue()
+$stmt = $pdo->prepare('SELECT :name, :age');
+$stmt->bindValue(':name', 'Alice');
+$stmt->bindValue(':age', 30);
+$stmt->execute();
+// Output: Parameters: {":name":"Alice",":age":30}
+
+// Example 2: Using bindParam() - values at execution time are captured
+$name = 'Bob';
+$age = 25;
+$stmt = $pdo->prepare('SELECT :name, :age');
+$stmt->bindParam(':name', $name);
+$stmt->bindParam(':age', $age);
+$age = 30; // Modified after binding
+$stmt->execute();
+// Output: Parameters: {":name":"Bob",":age":30}
+
+// Example 3: Mixing bound and execute params
+$stmt = $pdo->prepare('SELECT :name, :age');
+$stmt->bindValue(':name', 'Charlie');
+$stmt->execute([':age' => 35]);
+// Output: Parameters: {":name":"Charlie",":age":35}
+```
+
 ### Complete Example
 
 See [examples/query-profiler.php](examples/query-profiler.php) for a fully-featured query profiling implementation with detailed reporting.
@@ -318,11 +371,11 @@ All standard PDO methods work exactly as expected.
 
 #### `ExecutionSucceededEvent`
 - `int $rowCount` - Number of rows affected
-- `?array $params` - Parameters passed to the query (if any)
+- `?array $params` - All parameters (includes both bound via bindValue/bindParam and passed to execute)
 
 #### `ExecutionFailedEvent`
 - `PDOException $exception` - The exception that was thrown
-- `?array $params` - Parameters passed to the query (if any)
+- `?array $params` - All parameters (includes both bound via bindValue/bindParam and passed to execute)
 
 #### `PrepareEvent`
 - `string $query` - The SQL query being prepared

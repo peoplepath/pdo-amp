@@ -244,6 +244,7 @@ final class PDOTest extends TestCase
                 $eventLog[] = ['action' => 'executionSucceeded', 'params' => $event->params];
             });
 
+        /** @phpstan-ignore argument.type */
         $pdo->addSubscriber($subscriber);
 
         // Prepare two statements
@@ -251,7 +252,8 @@ final class PDOTest extends TestCase
         $query2 = 'SELECT ? AS second_value';
         $stmt1 = $pdo->prepare($query1);
         $stmt2 = $pdo->prepare($query2);
-
+        $this->assertNotFalse($stmt1);
+        $this->assertNotFalse($stmt2);
 
         // Execute in reverse order
         $this->assertTrue($stmt2->execute([200]));
@@ -285,17 +287,349 @@ final class PDOTest extends TestCase
         ], $eventLog);
     }
 
-    public function test_minimal_delay_after_prepare(): void {
-        $pdo   = $this->createPDO();
+    public function test_minimal_delay_after_prepare(): void
+    {
+        $pdo = $this->createPDO();
         $micro = microtime(true);
 
         $stmt = $pdo->prepare('SELECT USLEEP(10001)');
+        $this->assertNotFalse($stmt);
 
         $this->assertLessThan(.01, microtime(true) - $micro);
 
         $stmt->execute();
 
         $this->assertGreaterThan(.01, microtime(true) - $micro);
+    }
+
+    public function test_bound_values_included_in_execution_succeeded_event(): void
+    {
+        $pdo = $this->createPDO();
+
+        $capturedParams = null;
+        $subscriber = $this->createMock(Subscriber\ExecutionSucceededSubscriber::class);
+        $subscriber->expects($this->once())
+            ->method('executionSucceeded')
+            ->willReturnCallback(function (Event\ExecutionSucceededEvent $event) use (&$capturedParams) {
+                $capturedParams = $event->params;
+            });
+
+        $pdo->addSubscriber($subscriber);
+        $stmt = $pdo->prepare('SELECT :name, :age');
+        $this->assertNotFalse($stmt);
+        $stmt->bindValue(':name', 'Alice');
+        $stmt->bindValue(':age', 30);
+        $stmt->execute();
+
+        $this->assertSame([':name' => 'Alice', ':age' => 30], $capturedParams);
+    }
+
+    public function test_bound_params_included_in_execution_succeeded_event(): void
+    {
+        $pdo = $this->createPDO();
+
+        $capturedParams = null;
+        $subscriber = $this->createMock(Subscriber\ExecutionSucceededSubscriber::class);
+        $subscriber->expects($this->once())
+            ->method('executionSucceeded')
+            ->willReturnCallback(function (Event\ExecutionSucceededEvent $event) use (&$capturedParams) {
+                $capturedParams = $event->params;
+            });
+
+        $pdo->addSubscriber($subscriber);
+        $name = 'Bob';
+        $age = 25;
+        $stmt = $pdo->prepare('SELECT :name, :age');
+        $this->assertNotFalse($stmt);
+        $stmt->bindParam(':name', $name);
+        $stmt->bindParam(':age', $age);
+        $stmt->execute();
+
+        // bindParam without type defaults to PARAM_STR, so values are stringified
+        $this->assertSame([':name' => 'Bob', ':age' => '25'], $capturedParams);
+    }
+
+    public function test_bound_params_reflect_variable_changes(): void
+    {
+        $pdo = $this->createPDO();
+
+        $capturedParams = null;
+        $subscriber = $this->createMock(Subscriber\ExecutionSucceededSubscriber::class);
+        $subscriber->expects($this->once())
+            ->method('executionSucceeded')
+            ->willReturnCallback(function (Event\ExecutionSucceededEvent $event) use (&$capturedParams) {
+                $capturedParams = $event->params;
+            });
+
+        $pdo->addSubscriber($subscriber);
+        $value = 100;
+        $stmt = $pdo->prepare('SELECT :value');
+        $this->assertNotFalse($stmt);
+        $stmt->bindParam(':value', $value);
+
+        // Change the variable after binding - bindParam uses references
+        $value = 200;
+        $stmt->execute();
+
+        // Should reflect the updated value at execution time
+        // bindParam without type defaults to PARAM_STR, so values are stringified
+        $this->assertSame([':value' => '200'], $capturedParams);
+    }
+
+    public function test_mixed_bound_and_execute_parameters(): void
+    {
+        $pdo = $this->createPDO();
+
+        $capturedParams = null;
+        $subscriber = $this->createMock(Subscriber\ExecutionSucceededSubscriber::class);
+        $subscriber->expects($this->once())
+            ->method('executionSucceeded')
+            ->willReturnCallback(function (Event\ExecutionSucceededEvent $event) use (&$capturedParams) {
+                $capturedParams = $event->params;
+            });
+
+        $pdo->addSubscriber($subscriber);
+        $stmt = $pdo->prepare('SELECT :name, :age');
+        $this->assertNotFalse($stmt);
+        $stmt->bindValue(':name', 'Alice');
+        $stmt->execute([':age' => 30]);
+
+        // Both bound and execute params should be present
+        $this->assertSame([':age' => 30, ':name' => 'Alice'], $capturedParams);
+    }
+
+    public function test_execute_params_override_bound_params(): void
+    {
+        $pdo = $this->createPDO();
+
+        $capturedParams = null;
+        $subscriber = $this->createMock(Subscriber\ExecutionSucceededSubscriber::class);
+        $subscriber->expects($this->once())
+            ->method('executionSucceeded')
+            ->willReturnCallback(function (Event\ExecutionSucceededEvent $event) use (&$capturedParams) {
+                $capturedParams = $event->params;
+            });
+
+        $pdo->addSubscriber($subscriber);
+        $stmt = $pdo->prepare('SELECT :name');
+        $this->assertNotFalse($stmt);
+        $stmt->bindValue(':name', 'Alice');
+        $stmt->execute([':name' => 'Bob']);
+
+        // Execute params should take precedence
+        $this->assertSame([':name' => 'Bob'], $capturedParams);
+    }
+
+    public function test_bound_params_cleared_after_execution(): void
+    {
+        $pdo = $this->createPDO();
+
+        $capturedParams = [];
+        $subscriber = $this->createMock(Subscriber\ExecutionSucceededSubscriber::class);
+        $subscriber->expects($this->exactly(2))
+            ->method('executionSucceeded')
+            ->willReturnCallback(function (Event\ExecutionSucceededEvent $event) use (&$capturedParams) {
+                $capturedParams[] = $event->params;
+            });
+
+        $pdo->addSubscriber($subscriber);
+        $stmt = $pdo->prepare('SELECT :value');
+        $this->assertNotFalse($stmt);
+
+        // First execution with bound param
+        $stmt->bindValue(':value', 100);
+        $stmt->execute();
+
+        // Second execution without binding - should not see previous param
+        $stmt->execute([':value' => 200]);
+
+        $this->assertSame([
+            [':value' => 100],  // First execution
+            [':value' => 200],  // Second execution - only has the execute param
+        ], $capturedParams);
+    }
+
+    public function test_bound_values_included_in_execution_failed_event(): void
+    {
+        $pdo = $this->createPDO(errmode: PDO::ERRMODE_SILENT);
+
+        $capturedParams = null;
+        $subscriber = $this->createMock(Subscriber\ExecutionFailedSubscriber::class);
+        $subscriber->expects($this->once())
+            ->method('executionFailed')
+            ->willReturnCallback(function (Event\ExecutionFailedEvent $event) use (&$capturedParams) {
+                $capturedParams = $event->params;
+            });
+
+        $pdo->addSubscriber($subscriber);
+
+        // Create a table with a unique constraint
+        $pdo->exec('CREATE TABLE test_users (id INTEGER PRIMARY KEY, name TEXT UNIQUE)');
+        $pdo->exec("INSERT INTO test_users (id, name) VALUES (1, 'Alice')");
+
+        // Try to insert duplicate name - will fail due to UNIQUE constraint
+        $stmt = $pdo->prepare('INSERT INTO test_users (id, name) VALUES (:id, :name)');
+        $this->assertNotFalse($stmt);
+        $stmt->bindValue(':id', 2);
+        $stmt->bindValue(':name', 'Alice');  // Duplicate name
+        $result = $stmt->execute();
+
+        // Execute should fail and params should be captured in the failed event
+        $this->assertFalse($result);
+        $this->assertSame([':id' => 2, ':name' => 'Alice'], $capturedParams);
+    }
+
+    public function test_bound_values_with_positional_parameters(): void
+    {
+        $pdo = $this->createPDO();
+
+        $capturedParams = null;
+        $subscriber = $this->createMock(Subscriber\ExecutionSucceededSubscriber::class);
+        $subscriber->expects($this->once())
+            ->method('executionSucceeded')
+            ->willReturnCallback(function (Event\ExecutionSucceededEvent $event) use (&$capturedParams) {
+                $capturedParams = $event->params;
+            });
+
+        $pdo->addSubscriber($subscriber);
+        $stmt = $pdo->prepare('SELECT ?, ?');
+        $this->assertNotFalse($stmt);
+        $stmt->bindValue(1, 'Alice');
+        $stmt->bindValue(2, 30);
+        $stmt->execute();
+
+        // bindValue uses 1-based indexing for positional params
+        $this->assertSame([1 => 'Alice', 2 => 30], $capturedParams);
+    }
+
+    public function test_bound_params_with_positional_parameters(): void
+    {
+        $pdo = $this->createPDO();
+
+        $capturedParams = null;
+        $subscriber = $this->createMock(Subscriber\ExecutionSucceededSubscriber::class);
+        $subscriber->expects($this->once())
+            ->method('executionSucceeded')
+            ->willReturnCallback(function (Event\ExecutionSucceededEvent $event) use (&$capturedParams) {
+                $capturedParams = $event->params;
+            });
+
+        $pdo->addSubscriber($subscriber);
+        $name = 'Bob';
+        $age = 25;
+        $stmt = $pdo->prepare('SELECT ?, ?');
+        $this->assertNotFalse($stmt);
+        $stmt->bindParam(1, $name);
+        $stmt->bindParam(2, $age);
+        $stmt->execute();
+
+        // bindParam without type defaults to PARAM_STR, so values are stringified
+        $this->assertSame([1 => 'Bob', 2 => '25'], $capturedParams);
+    }
+
+    public function test_positional_bound_params_reflect_variable_changes(): void
+    {
+        $pdo = $this->createPDO();
+
+        $capturedParams = null;
+        $subscriber = $this->createMock(Subscriber\ExecutionSucceededSubscriber::class);
+        $subscriber->expects($this->once())
+            ->method('executionSucceeded')
+            ->willReturnCallback(function (Event\ExecutionSucceededEvent $event) use (&$capturedParams) {
+                $capturedParams = $event->params;
+            });
+
+        $pdo->addSubscriber($subscriber);
+        $value1 = 100;
+        $value2 = 200;
+        $stmt = $pdo->prepare('SELECT ?, ?');
+        $this->assertNotFalse($stmt);
+        $stmt->bindParam(1, $value1);
+        $stmt->bindParam(2, $value2);
+
+        // Change variables after binding - bindParam uses references
+        $value1 = 300;
+        $value2 = 400;
+        $stmt->execute();
+
+        // Should reflect the updated values at execution time
+        // bindParam without type defaults to PARAM_STR, so values are stringified
+        $this->assertSame([1 => '300', 2 => '400'], $capturedParams);
+    }
+
+    public function test_mixed_positional_bound_and_execute_parameters(): void
+    {
+        $pdo = $this->createPDO();
+
+        $capturedParams = null;
+        $subscriber = $this->createMock(Subscriber\ExecutionSucceededSubscriber::class);
+        $subscriber->expects($this->once())
+            ->method('executionSucceeded')
+            ->willReturnCallback(function (Event\ExecutionSucceededEvent $event) use (&$capturedParams) {
+                $capturedParams = $event->params;
+            });
+
+        $pdo->addSubscriber($subscriber);
+        $stmt = $pdo->prepare('SELECT ?, ?');
+        $this->assertNotFalse($stmt);
+        $stmt->bindValue(1, 'Alice');
+        $stmt->bindValue(2, 'Bob');
+        $stmt->execute([1 => 'Charlie']);  // Override second param
+
+        // Execute params override bound params for the same key
+        $this->assertSame([1 => 'Charlie', 2 => 'Bob'], $capturedParams);
+    }
+
+    public function test_execute_params_override_bound_positional_params(): void
+    {
+        $pdo = $this->createPDO();
+
+        $capturedParams = null;
+        $subscriber = $this->createMock(Subscriber\ExecutionSucceededSubscriber::class);
+        $subscriber->expects($this->once())
+            ->method('executionSucceeded')
+            ->willReturnCallback(function (Event\ExecutionSucceededEvent $event) use (&$capturedParams) {
+                $capturedParams = $event->params;
+            });
+
+        $pdo->addSubscriber($subscriber);
+        $stmt = $pdo->prepare('SELECT ?');
+        $this->assertNotFalse($stmt);
+        $stmt->bindValue(1, 'Alice');
+        $stmt->execute(['Bob']);  // 0-based array for execute()
+
+        // Both params present: bound param at key 1, execute param at key 0
+        // In practice, PDO will use the execute param since it's position 0 (first ?)
+        $this->assertSame([0 => 'Bob', 1 => 'Alice'], $capturedParams);
+    }
+
+    public function test_positional_bound_params_cleared_after_execution(): void
+    {
+        $pdo = $this->createPDO();
+
+        $capturedParams = [];
+        $subscriber = $this->createMock(Subscriber\ExecutionSucceededSubscriber::class);
+        $subscriber->expects($this->exactly(2))
+            ->method('executionSucceeded')
+            ->willReturnCallback(function (Event\ExecutionSucceededEvent $event) use (&$capturedParams) {
+                $capturedParams[] = $event->params;
+            });
+
+        $pdo->addSubscriber($subscriber);
+        $stmt = $pdo->prepare('SELECT ?');
+        $this->assertNotFalse($stmt);
+
+        // First execution with bound param
+        $stmt->bindValue(1, 100);
+        $stmt->execute();
+
+        // Second execution without binding - should not see previous param
+        $stmt->execute([200]);  // 0-based array for execute()
+
+        $this->assertSame([
+            [1 => 100],  // First execution - bound param at position 1
+            [0 => 200],  // Second execution - execute param at position 0
+        ], $capturedParams);
     }
 
     /**
