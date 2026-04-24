@@ -138,6 +138,14 @@ class MySubscriber implements
 
 You only need to implement the subscriber interfaces for events you're interested in.
 
+### Subscriber Exception Handling
+
+**Important:** Subscribers are responsible for handling their own exceptions. If a subscriber throws an exception during event processing, it will propagate up and may halt query execution.
+
+**Best Practice:** Always wrap subscriber logic in try-catch blocks to ensure database operations are not interrupted by subscriber failures
+
+This design is intentional: it gives you full control over how subscriber errors are handled while maintaining a simple, transparent event system.
+
 ## Usage Examples
 
 ### Basic Query Profiler
@@ -288,6 +296,29 @@ $pdo->beginTransaction();
 $pdo->commit();
 ```
 
+## Persistent Connections
+
+PDO APM fully supports persistent database connections (`PDO::ATTR_PERSISTENT => true`), which are crucial for production performance by reducing connection overhead.
+
+```php
+use PeoplePath\PdoApm\PDO;
+
+// Create a persistent connection
+$pdo = new PDO(
+    'mysql:host=localhost;dbname=mydb',
+    'user',
+    'pass',
+    [PDO::ATTR_PERSISTENT => true]
+);
+
+// Everything works the same - statements, events, parameter tracking
+$pdo->addSubscriber($profiler);
+$stmt = $pdo->prepare('SELECT * FROM users WHERE id = ?');
+$stmt->execute([123]);
+```
+
+**Implementation Note:** Version 0.2.0+ uses a hybrid approach: `PDO` extends `\PDO` (inheritance) for full compatibility with type hints and `instanceof` checks, while `PDOStatement` uses composition (wrapper pattern) to enable persistent connection support. The `PDOStatement` wrapper is transparent to most users unless you're doing `instanceof \PDOStatement` checks - use `instanceof PeoplePath\PdoApm\PDOStatement` instead.
+
 ### Parameter Tracking
 
 All parameters—whether bound via `bindValue()`, `bindParam()`, or passed directly to `execute()`—are included in the execution events (`ExecutionSucceededEvent` and `ExecutionFailedEvent`). This provides a complete view of the query with its actual parameter values at execution time.
@@ -341,6 +372,14 @@ $stmt->execute([':age' => 35]);
 // Output: Parameters: {":name":"Charlie",":age":35}
 ```
 
+## Security Considerations
+
+**⚠️ Parameter Sensitivity:** Execution events include all query parameters, which may contain sensitive data such as passwords, API keys, credit card numbers, or personal information (PII). When implementing subscribers:
+
+- **Filter sensitive parameters** before logging or transmitting to external services
+- **Use secure channels** for APM data transmission (HTTPS, encrypted connections)
+- **Comply with regulations** (GDPR, PCI-DSS, HIPAA, etc.) when handling parameter data
+- **Implement redaction** for known sensitive fields in production environments
 ### Complete Example
 
 See [examples/query-profiler.php](examples/query-profiler.php) for a fully-featured query profiling implementation with detailed reporting.
@@ -355,7 +394,7 @@ php examples/query-profiler.php
 
 ### `PeoplePath\PdoApm\PDO`
 
-Extends `\PDO` with event notification capabilities.
+A drop-in replacement for `\PDO` that extends the native PDO class with event notification capabilities. Fully compatible with `instanceof \PDO` checks and type hints.
 
 #### Methods
 
@@ -391,6 +430,7 @@ This library is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 ## Authors
 
 - **Ondřej Ešler** - [ondrej.esler@peoplepath.com](mailto:ondrej.esler@peoplepath.com)
+- **Claude Code** (AI Co-Author)
 
 ## Use Cases
 

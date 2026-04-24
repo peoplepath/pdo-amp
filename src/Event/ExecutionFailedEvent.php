@@ -24,9 +24,15 @@ final readonly class ExecutionFailedEvent implements Event
      */
     public static function fromError(PDO $pdo, ?array $params = null): self
     {
-        [$state, $code, $message] = $pdo->errorInfo();
+        $errorInfo = $pdo->errorInfo();
+        /** @var string|null $state */
+        $state = $errorInfo[0] ?? '';
+        /** @var int|null $code */
+        $code = $errorInfo[1] ?? 0;
+        /** @var string|null $message */
+        $message = $errorInfo[2] ?? '';
 
-        return new self(new PDOException("SQLSTATE[$state]: {$message}", (int) $code), $params);
+        return new self(new PDOException("SQLSTATE[{$state}]: {$message}", (int) $code), $params);
     }
 
     public function notifySubscriber(Subscriber $subscriber): void

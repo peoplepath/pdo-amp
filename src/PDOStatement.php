@@ -4,16 +4,50 @@ declare(strict_types=1);
 
 namespace PeoplePath\PdoApm;
 
+use Iterator;
+use IteratorAggregate;
 use PDOException;
 
-class PDOStatement extends \PDOStatement
+/**
+ * @implements IteratorAggregate<int, mixed>
+ *
+ * @method mixed fetch(int $mode = \PDO::FETCH_DEFAULT, int $cursorOrientation = \PDO::FETCH_ORI_NEXT, int $cursorOffset = 0)
+ * @method array<mixed> fetchAll(int $mode = \PDO::FETCH_DEFAULT, mixed ...$args)
+ * @method int rowCount()
+ * @method int columnCount()
+ * @method bool closeCursor()
+ * @method mixed fetchColumn(int $column = 0)
+ * @method bool setFetchMode(int $mode, mixed ...$args)
+ * @method object|false fetchObject(?string $class = 'stdClass', array<mixed> $constructorArgs = [])
+ * @method bool setAttribute(int $attribute, mixed $value)
+ * @method mixed getAttribute(int $attribute)
+ * @method ?string errorCode()
+ * @method array<mixed> errorInfo()
+ * @method bool nextRowset()
+ * @method void debugDumpParams()
+ * @method bool bindColumn(string|int $column, mixed &$var, int $type = \PDO::PARAM_STR, int $maxLength = 0, mixed $driverOptions = null)
+ */
+class PDOStatement implements IteratorAggregate
 {
+    private \PDOStatement $statement;
+
     private PDO $pdo;
 
     /**
      * @var array<string|int, mixed>
      */
     private array $boundParams = [];
+
+    public function __construct(\PDOStatement $statement, PDO $pdo)
+    {
+        $this->statement = $statement;
+        $this->pdo = $pdo;
+    }
+
+    public function getIterator(): Iterator
+    {
+        return $this->statement->getIterator();
+    }
 
     /**
      * @param  mixed[]  $params
@@ -24,11 +58,11 @@ class PDOStatement extends \PDOStatement
         // Use + operator to preserve integer keys (array_merge renumbers them)
         $allParams = ($params ?? []) + $this->boundParams;
 
-        $this->pdo->notifySubscribers(new Event\ExecutionStartsEvent($this->queryString));
+        $this->pdo->notifySubscribers(new Event\ExecutionStartsEvent($this->statement->queryString));
 
         try {
-            if ($result = parent::execute($params)) {
-                $this->pdo->notifySubscribers(new Event\ExecutionSucceededEvent($this->rowCount(), $allParams));
+            if ($result = $this->statement->execute($params)) {
+                $this->pdo->notifySubscribers(new Event\ExecutionSucceededEvent($this->statement->rowCount(), $allParams));
             } else {
                 $this->pdo->notifySubscribers(Event\ExecutionFailedEvent::fromError($this->pdo, $allParams));
             }
@@ -45,7 +79,7 @@ class PDOStatement extends \PDOStatement
 
     public function bindValue(string|int $param, mixed $value, int $type = \PDO::PARAM_STR): bool
     {
-        $result = parent::bindValue($param, $value, $type);
+        $result = $this->statement->bindValue($param, $value, $type);
 
         if ($result) {
             $this->boundParams[$param] = $value;
@@ -56,7 +90,7 @@ class PDOStatement extends \PDOStatement
 
     public function bindParam(string|int $param, mixed &$var, int $type = \PDO::PARAM_STR, int $maxLength = 0, mixed $driverOptions = null): bool
     {
-        $result = parent::bindParam($param, $var, $type, $maxLength, $driverOptions);
+        $result = $this->statement->bindParam($param, $var, $type, $maxLength, $driverOptions);
 
         if ($result) {
             // Store reference so changes to $var are reflected at execution time
@@ -66,8 +100,26 @@ class PDOStatement extends \PDOStatement
         return $result;
     }
 
-    public function setPDO(PDO $pdo): void
+    /**
+     * @param  array<mixed>  $args
+     */
+    public function __call(string $method, array $args): mixed
     {
-        $this->pdo = $pdo;
+        return $this->statement->$method(...$args);
+    }
+
+    public function __get(string $name): mixed
+    {
+        return $this->statement->$name;
+    }
+
+    public function __set(string $name, mixed $value): void
+    {
+        $this->statement->$name = $value;
+    }
+
+    public function __isset(string $name): bool
+    {
+        return isset($this->statement->$name);
     }
 }

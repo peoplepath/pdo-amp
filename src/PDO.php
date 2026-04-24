@@ -19,7 +19,6 @@ class PDO extends \PDO
         ?array $options = null,
     ) {
         parent::__construct($dns, $username, $password, $options);
-        $this->setAttribute(self::ATTR_STATEMENT_CLASS, [PDOStatement::class]);
     }
 
     public function beginTransaction(): bool
@@ -61,40 +60,45 @@ class PDO extends \PDO
         return $result;
     }
 
-    /** @phpstan-param array<PDO::ATTR_*, mixed> $options */
+    /**
+     * @phpstan-param array<PDO::ATTR_*, mixed> $options
+     */
+    #[\ReturnTypeWillChange]
     public function prepare(string $query, array $options = []): PDOStatement|false
     {
-        /** @var PDOStatement|false */
-        $statement = parent::prepare($query, $options);
+        $nativeStatement = parent::prepare($query, $options);
 
-        if ($statement !== false) {
-            $statement->setPDO($this);
+        if ($nativeStatement !== false) {
             $this->notifySubscribers(new Event\PrepareEvent($query));
+
+            return new PDOStatement($nativeStatement, $this);
         }
 
-        return $statement;
+        return false;
     }
 
+    #[\ReturnTypeWillChange]
     public function query(string $query, ?int $fetchMode = null, mixed ...$args): PDOStatement|false
     {
         $this->notifySubscribers(new Event\ExecutionStartsEvent($query));
 
         try {
-            /** @var PDOStatement|false */
-            $statement = parent::query($query, $fetchMode, ...$args);
+            $nativeStatement = parent::query($query, $fetchMode, ...$args);
         } catch (PDOException $e) {
             $this->notifySubscribers(new Event\ExecutionFailedEvent($e));
             throw $e;
         }
 
-        if ($statement !== false) {
-            $statement->setPDO($this);
-            $this->notifySubscribers(new Event\ExecutionSucceededEvent($statement->rowCount()));
+        if ($nativeStatement !== false) {
+            $wrappedStatement = new PDOStatement($nativeStatement, $this);
+            $this->notifySubscribers(new Event\ExecutionSucceededEvent($wrappedStatement->rowCount()));
+
+            return $wrappedStatement;
         } else {
             $this->notifySubscribers(Event\ExecutionFailedEvent::fromError($this));
         }
 
-        return $statement;
+        return false;
     }
 
     public function rollBack(): bool

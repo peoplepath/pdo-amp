@@ -155,8 +155,21 @@ final class PDOTest extends TestCase
     {
         $pdo = $this->createPDO();
 
+        // Create a table with a NOT NULL constraint
+        $pdo->exec('CREATE TABLE test_table (id INTEGER NOT NULL, value TEXT)');
+
+        $pdo->addSubscriber($this->expectAction('Prepare'));
+        $pdo->addSubscriber($this->expectAction('ExecutionStarts'));
+        $pdo->addSubscriber($this->expectAction('ExecutionFailed'));
+
+        $stmt = $pdo->prepare('INSERT INTO test_table (id, value) VALUES (?, ?)');
+        $this->assertNotFalse($stmt);
+
         $this->expectException('PDOException');
-        $pdo->prepare('SELECT * FROM `not_a_table`');
+        $this->expectExceptionMessage('NOT NULL constraint failed');
+
+        // Try to insert NULL into NOT NULL column - this will throw during execute()
+        $stmt->execute([null, 'test']);
     }
 
     public function test_statement_execute_failed_on_error(): void
@@ -165,6 +178,30 @@ final class PDOTest extends TestCase
 
         $stmt = $pdo->prepare('SELECT * FROM `not_a_table`');
         $this->assertFalse($stmt);
+    }
+
+    public function test_statement_get_iterator(): void
+    {
+        $pdo = $this->createPDO();
+
+        // Create table and insert test data
+        $pdo->exec('CREATE TABLE test_iterator (id INTEGER, name TEXT)');
+        $pdo->exec("INSERT INTO test_iterator VALUES (1, 'Alice'), (2, 'Bob'), (3, 'Charlie')");
+
+        $stmt = $pdo->prepare('SELECT * FROM test_iterator ORDER BY id');
+        $this->assertNotFalse($stmt);
+        $stmt->execute();
+
+        // Use foreach to iterate (this calls getIterator())
+        $results = [];
+        foreach ($stmt as $row) {
+            $results[] = $row;
+        }
+
+        $this->assertCount(3, $results);
+        $this->assertSame(['id' => 1, 'name' => 'Alice'], $results[0]);
+        $this->assertSame(['id' => 2, 'name' => 'Bob'], $results[1]);
+        $this->assertSame(['id' => 3, 'name' => 'Charlie'], $results[2]);
     }
 
     public function test_execution_starts_event_contains_query(): void
