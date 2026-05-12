@@ -5,29 +5,12 @@ declare(strict_types=1);
 namespace PeoplePath\PdoApm;
 
 use Iterator;
-use IteratorAggregate;
 use PDOException;
 
 /**
- * @implements IteratorAggregate<int, mixed>
- *
- * @method mixed fetch(int $mode = \PDO::FETCH_DEFAULT, int $cursorOrientation = \PDO::FETCH_ORI_NEXT, int $cursorOffset = 0)
- * @method array<mixed> fetchAll(int $mode = \PDO::FETCH_DEFAULT, mixed ...$args)
- * @method int rowCount()
- * @method int columnCount()
- * @method bool closeCursor()
- * @method mixed fetchColumn(int $column = 0)
- * @method bool setFetchMode(int $mode, mixed ...$args)
- * @method object|false fetchObject(?string $class = 'stdClass', array<mixed> $constructorArgs = [])
- * @method bool setAttribute(int $attribute, mixed $value)
- * @method mixed getAttribute(int $attribute)
- * @method ?string errorCode()
- * @method array<mixed> errorInfo()
- * @method bool nextRowset()
- * @method void debugDumpParams()
- * @method bool bindColumn(string|int $column, mixed &$var, int $type = \PDO::PARAM_STR, int $maxLength = 0, mixed $driverOptions = null)
+ * Wrapper for native \PDOStatement that adds parameter tracking and event notification.
  */
-class PDOStatement implements IteratorAggregate
+class PDOStatement extends \PDOStatement
 {
     private \PDOStatement $statement;
 
@@ -37,6 +20,14 @@ class PDOStatement implements IteratorAggregate
      * @var array<string|int, mixed>
      */
     private array $boundParams = [];
+
+    /**
+     * Property hook to delegate queryString access to wrapped statement
+     */
+    public string $queryString {
+        /** @phpstan-ignore propertyGetHook.noRead */
+        get => $this->statement->queryString;
+    }
 
     public function __construct(\PDOStatement $statement, PDO $pdo)
     {
@@ -100,26 +91,98 @@ class PDOStatement implements IteratorAggregate
         return $result;
     }
 
+    // Fetch methods
+    public function fetch(int $mode = \PDO::FETCH_DEFAULT, int $cursorOrientation = \PDO::FETCH_ORI_NEXT, int $cursorOffset = 0): mixed
+    {
+        return $this->statement->fetch($mode, $cursorOrientation, $cursorOffset);
+    }
+
     /**
-     * @param  array<mixed>  $args
+     * @return array<mixed>
      */
-    public function __call(string $method, array $args): mixed
+    public function fetchAll(int $mode = \PDO::FETCH_DEFAULT, mixed ...$args): array
     {
-        return $this->statement->$method(...$args);
+        /** @phpstan-ignore-next-line */
+        return $this->statement->fetchAll($mode, ...$args);
     }
 
-    public function __get(string $name): mixed
+    public function fetchColumn(int $column = 0): mixed
     {
-        return $this->statement->$name;
+        return $this->statement->fetchColumn($column);
     }
 
-    public function __set(string $name, mixed $value): void
+    /**
+     * @param class-string<object>|null $class
+     * @param array<mixed> $constructorArgs
+     */
+    public function fetchObject(?string $class = 'stdClass', array $constructorArgs = []): object|false
     {
-        $this->statement->$name = $value;
+        /** @phpstan-ignore-next-line */
+        return $this->statement->fetchObject($class, $constructorArgs);
     }
 
-    public function __isset(string $name): bool
+    // Metadata methods
+    public function rowCount(): int
     {
-        return isset($this->statement->$name);
+        return $this->statement->rowCount();
+    }
+
+    public function columnCount(): int
+    {
+        return $this->statement->columnCount();
+    }
+
+    // Cursor & mode methods
+    public function closeCursor(): bool
+    {
+        return $this->statement->closeCursor();
+    }
+
+    public function setFetchMode(int $mode, mixed ...$args): true
+    {
+        /** @phpstan-ignore-next-line */
+        return $this->statement->setFetchMode($mode, ...$args);
+    }
+
+    public function nextRowset(): bool
+    {
+        return $this->statement->nextRowset();
+    }
+
+    // Attribute methods
+    public function setAttribute(int $attribute, mixed $value): bool
+    {
+        return $this->statement->setAttribute($attribute, $value);
+    }
+
+    public function getAttribute(int $attribute): mixed
+    {
+        return $this->statement->getAttribute($attribute);
+    }
+
+    // Error methods
+    public function errorCode(): ?string
+    {
+        return $this->statement->errorCode();
+    }
+
+    /**
+     * @return array<mixed>
+     */
+    public function errorInfo(): array
+    {
+        return $this->statement->errorInfo();
+    }
+
+    // Debug & binding methods
+    public function debugDumpParams(): ?bool
+    {
+        /** @phpstan-ignore-next-line */
+        return $this->statement->debugDumpParams();
+    }
+
+    public function bindColumn(string|int $column, mixed &$var, int $type = \PDO::PARAM_STR, int $maxLength = 0, mixed $driverOptions = null): bool
+    {
+        return $this->statement->bindColumn($column, $var, $type, $maxLength, $driverOptions);
     }
 }

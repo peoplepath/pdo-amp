@@ -20,6 +20,36 @@ final class PersistentConnectionTest extends TestCase
         $this->assertInstanceOf(PDO::class, $pdo);
     }
 
+    public function test_persistent_connection_wrapper_extends_native_pdostatement(): void
+    {
+        $pdo = $this->createPersistentPDO();
+
+        // Prepare a statement with persistent connection
+        $stmt = $pdo->prepare('SELECT :name AS name, :value AS value');
+        $this->assertNotFalse($stmt);
+
+        // Verify the wrapper is an instance of both our PDOStatement and native \PDOStatement
+        $this->assertInstanceOf(PDOStatement::class, $stmt);
+        $this->assertInstanceOf(\PDOStatement::class, $stmt);
+
+        // Verify queryString property works (PHP 8.4 property hook)
+        $this->assertSame('SELECT :name AS name, :value AS value', $stmt->queryString);
+
+        // Execute with parameters
+        $stmt->bindValue(':name', 'test_name');
+        $stmt->bindValue(':value', 123);
+        $this->assertTrue($stmt->execute());
+
+        // Verify data retrieval works
+        $result = $stmt->fetch();
+        $this->assertSame(['name' => 'test_name', 'value' => '123'], $result);
+
+        // Verify statement can be reused
+        $this->assertTrue($stmt->execute([':name' => 'second', ':value' => 456]));
+        $result = $stmt->fetch();
+        $this->assertSame(['name' => 'second', 'value' => '456'], $result);
+    }
+
     public function test_persistent_connection_prepare_returns_wrapped_statement(): void
     {
         $pdo = $this->createPersistentPDO();
@@ -320,6 +350,62 @@ final class PersistentConnectionTest extends TestCase
         $stmt = $pdo->query('SELECT 1 AS a, 2 AS b, 3 AS c');
         $this->assertNotFalse($stmt);
         $this->assertSame(3, $stmt->columnCount());
+    }
+
+    public function test_persistent_connection_wrapper_delegates_all_statement_methods(): void
+    {
+        $pdo = $this->createPersistentPDO();
+        $pdo->exec('CREATE TABLE test_methods (id INTEGER, name TEXT, age INTEGER)');
+        $pdo->exec("INSERT INTO test_methods VALUES (1, 'Alice', 30), (2, 'Bob', 25)");
+
+        $stmt = $pdo->prepare('SELECT * FROM test_methods ORDER BY id');
+        $this->assertNotFalse($stmt);
+        $stmt->execute();
+
+        // Test fetch methods
+        $row1 = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame(['id' => 1, 'name' => 'Alice', 'age' => 30], $row1);
+
+        // Test closeCursor and re-execution
+        $this->assertTrue($stmt->closeCursor());
+        $stmt->execute();
+
+        // Test fetchColumn
+        $this->assertSame(1, $stmt->fetchColumn(0));
+
+        // Test closeCursor and fetchObject
+        $stmt->closeCursor();
+        $stmt->execute();
+        $obj = $stmt->fetchObject();
+        $this->assertInstanceOf(\stdClass::class, $obj);
+        $this->assertSame(1, $obj->id);
+
+        // Test columnCount
+        $this->assertSame(3, $stmt->columnCount());
+
+        // Test error methods (should be no errors)
+        $errorCode = $stmt->errorCode();
+        $this->assertTrue($errorCode === null || $errorCode === '00000');
+        $errorInfo = $stmt->errorInfo();
+        $this->assertCount(3, $errorInfo);
+    }
+
+    public function test_persistent_connection_handles_statement_with_setFetchMode(): void
+    {
+        $pdo = $this->createPersistentPDO();
+        $pdo->exec('CREATE TABLE test_fetch_mode (id INTEGER, name TEXT)');
+        $pdo->exec("INSERT INTO test_fetch_mode VALUES (1, 'Alice'), (2, 'Bob')");
+
+        $stmt = $pdo->prepare('SELECT * FROM test_fetch_mode ORDER BY id');
+        $this->assertNotFalse($stmt);
+
+        // Set fetch mode before execution
+        $stmt->setFetchMode(\PDO::FETCH_NUM);
+        $stmt->execute();
+
+        // Should fetch as numeric array
+        $row = $stmt->fetch();
+        $this->assertSame([1, 'Alice'], $row);
     }
 
     public function test_persistent_connection_multiple_statements_executed_in_reverse_order(): void
