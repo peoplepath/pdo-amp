@@ -11,7 +11,6 @@ class PDO extends \PDO
     /** @var Subscriber[] */
     private array $subscribers = [];
 
-    /** @phpstan-param array<PDO::ATTR_*, mixed>|null $options */
     public function __construct(
         string $dns,
         ?string $username = null,
